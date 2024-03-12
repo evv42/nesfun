@@ -1,0 +1,36 @@
+Screen size: 32x28
+Map size: 32x24?
+          768Bytes
+          x128maps=
+          98KBytes
+          
+Map format:
+RLE like, lazy
+
+SSRRSSRRSSRRSSRRSS00
+
+Select tile: 1Byte
+Repeat tile: 1Byte
+
+If Repeat=00, map is done
+
+Tiles:
+00000000000000001111111111111111
+0123456789ABCDEF0123456789ABCDEF
+ABCDEFGHIJKLMNOPQRSTUVWXYZ4c2.r_
+
+
+Map 1:
+
+AAAAAAAAAAA
+A         A
+A         A
+A         A
+AAAAA AAAAA
+
+.byte $00,$0B,$1F,$15
+.byte $00,$01,$1F,$09,$00,$01,$1F,$15
+.byte $00,$01,$1F,$09,$00,$01,$1F,$15
+.byte $00,$01,$1F,$09,$00,$01,$1F,$15
+.byte $00,$05,$1F,$01,$00,$05,$1F,$15
+.byte $00,$00

@@ -1,0 +1,715 @@
+;defines here
+PPUCTRL = $2000
+PPUMASK = $2001
+PPUSTATUS = $2002
+OAMADDR = $2003
+OAMDATA = $2004
+PPUSCROLL = $2005
+PPUADDR = $2006
+PPUDATA = $2007
+OAMDMA = $4014
+JOYPAD1 = $4016
+JOYPAD2 = $4017
+
+;game memory map
+
+ENGBUTTO2  = $FE
+ENGBUTTO1  = $FF
+
+ENGBUTTO2B = $03FB
+ENGBUTTO1B = $03FC
+ENGSCROLL  = $03FD
+ENGMODE    = $03FE
+ENGMODESET = $03FF
+
+;game here
+  .org $8000
+nmi:
+  lda ENGMODESET ;read engmode
+  cmp #$00 ;if 0, init
+  beq init_eng
+  cmp ENGMODE ;compare with var
+  bne change_engmode
+  rti ;done
+
+init_eng:
+  lda #$21 ;set game title
+  sta PPUADDR
+  lda #$42
+  sta PPUADDR
+  lda #<.title
+  sta $00
+  lda #>.title
+  sta $01
+  jsr puts
+  lda #$23 ;set game title
+  sta PPUADDR
+  lda #$52
+  sta PPUADDR
+  lda #<.copyright
+  sta $00
+  lda #>.copyright
+  sta $01
+  jsr puts
+  jsr resetscroll
+  lda #$01
+  sta ENGMODE
+  sta ENGMODESET
+  rti ;done
+  .title:
+    .asciiz "title"
+  .copyright:
+    .asciiz "|mmxxiii evv{}"
+    
+change_engmode:
+  cmp #$02
+  beq load_engmode2
+  jmp engmode_changed
+
+load_engmode2:
+  lda #$00;stop ppu
+  sta PPUMASK
+  jsr reset_nametable
+  lda #<map_0
+  sta $00
+  lda #>map_0
+  sta $01
+  jsr set_map
+  lda #$1E
+  sta PPUMASK;restart ppu
+  jmp engmode_changed
+
+engmode_changed:
+  lda ENGMODESET
+  sta ENGMODE
+  rti
+  
+reset:
+  sei
+  cld
+  
+  ldx #$40
+  stx JOYPAD2  ; APU frame IRQ
+  
+  ldx #$FF
+  txs
+  
+  ldx #$00
+  stx PPUCTRL  ;NMI
+  stx PPUMASK  ;rendering
+  stx $4010   ;DMC IRQs
+  
+  bit PPUSTATUS
+
+vblankwait1:  
+  bit PPUSTATUS
+  bpl vblankwait1
+
+  jsr clrmem
+    
+init_apu:
+  ; Init $4000-4013, 4015, 4017
+  ldy #$13
+apu_loop:  
+  lda apu_regs,y
+  sta $4000,y
+  dey
+  bpl apu_loop
+ 
+  lda #$0f
+  sta $4015
+  lda #$40
+  sta $4017
+   
+vblankwait2:
+  bit PPUSTATUS
+  bpl vblankwait2
+  
+vblankwait3:
+  bit PPUSTATUS
+  bpl vblankwait3
+    
+main:
+  lda #$3F ;set bg colors
+  sta PPUADDR
+  lda #$01
+  sta PPUADDR
+  lda #$30 ;bgpal0
+  sta PPUDATA
+  lda #$3D
+  sta PPUDATA
+  lda #$2D
+  sta PPUDATA
+  lda #$00
+  sta PPUDATA
+  lda #$30 ;bgpal1
+  sta PPUDATA
+  lda #$3D
+  sta PPUDATA
+  lda #$2D
+  sta PPUDATA
+  lda #$00
+  sta PPUDATA
+  lda #$30 ;bgpal2
+  sta PPUDATA
+  lda #$3D
+  sta PPUDATA
+  lda #$2D
+  sta PPUDATA
+  lda #$00
+  sta PPUDATA
+  lda #$30 ;bgpal3
+  sta PPUDATA
+  lda #$3D
+  sta PPUDATA
+  lda #$2D
+  sta PPUDATA
+  lda #$0F ;bg
+  sta PPUDATA
+  lda #$30 ;sppal0
+  sta PPUDATA
+  lda #$3D
+  sta PPUDATA
+  lda #$2D
+  sta PPUDATA
+  lda #$00
+  sta PPUDATA
+  lda #$30 ;sppal1
+  sta PPUDATA
+  lda #$3D
+  sta PPUDATA
+  lda #$2D
+  sta PPUDATA
+  lda #$00
+  sta PPUDATA
+  lda #$30 ;sppal2
+  sta PPUDATA
+  lda #$3D
+  sta PPUDATA
+  lda #$2D
+  sta PPUDATA
+  lda #$00
+  sta PPUDATA
+  lda #$30 ;sppal3
+  sta PPUDATA
+  lda #$3D
+  sta PPUDATA
+  lda #$2D
+  sta PPUDATA
+  
+  
+  lda #$00 ;set tile data
+  sta PPUADDR
+  sta PPUADDR
+  jsr loadchartiles
+  lda #%11111111
+  jsr vtile
+  lda #%00011000
+  jsr vtile
+
+  jsr reset_nametable
+    
+  lda #$23 ;reset attributes
+  sta PPUADDR
+  lda #$C0
+  sta PPUADDR
+  lda #$00
+  ldy #$40
+  fillattrtable:
+    sta PPUDATA
+    dey
+    cpy #0
+    bne fillattrtable
+  
+  lda #%00011110 ;PPU on
+  sta PPUMASK
+  
+  lda #%10001000 ;PPU ctrl(nmi on)
+  sta PPUCTRL
+  
+mode1loop:
+  jsr read_input
+  lda ENGBUTTO1
+  cmp ENGBUTTO1B
+  bne mode1loop
+  and #%10000000
+  cmp #$80
+  bne mode1loop
+  lda #$02
+  sta ENGMODESET
+
+mode2loop:
+  nop
+  jmp mode2loop
+  
+;////////////////////////////////////////
+;SUBROUTINES
+;////////////////////////////////////////
+  
+read_input:
+  lda ENGBUTTO1
+  sta ENGBUTTO1B
+  lda ENGBUTTO2
+  sta ENGBUTTO2B
+  lda #$01
+  sta JOYPAD1
+  sta JOYPAD2
+  sta ENGBUTTO2
+  lsr a
+  sta JOYPAD1
+  .loop:
+    lda JOYPAD1
+    and #%00000011
+    cmp #$01
+    rol ENGBUTTO1
+    lda JOYPAD2
+    and #%00000011
+    cmp #$01
+    rol ENGBUTTO2
+    bcc .loop
+  rts
+
+loadchartiles:
+  lda #<charstiles
+  sta $00
+  lda #>charstiles
+  sta $01
+  ldy #$00
+  ldx #$00
+  .loop:
+    lda ($00),y
+    sta PPUDATA
+    iny
+    cpy #$08
+    bne .loop
+  dey
+  tya
+  adc $00
+  sta $00
+  bcc .cont
+  inc $01
+  clc
+  .cont:
+    jsr filltileplane
+    ldy #$00
+    inx
+    cpx #$20
+    bne .loop
+    rts
+vtile:
+  ldy #$07 ;8 times
+  .loop:
+  sta PPUDATA
+  dey
+  bpl .loop
+filltileplane:
+  lda #$00
+  ldy #$07 ;8 times
+  .loop2:
+  sta PPUDATA
+  dey
+  bpl .loop2
+  rts
+  
+puts:
+  ldy #$00
+  .loop:
+    lda ($00),y
+    cmp #$00
+    beq .pass
+    tax ;dea plz
+    dex
+    txa
+    and #%00011111
+    sta PPUDATA 
+    iny
+    jmp .loop
+  .pass:
+    rts
+    
+reset_nametable:
+  lda #$20
+  sta PPUADDR
+  lda #$00
+  sta PPUADDR 
+  lda #$1F ;empty tile
+  ldx #$04
+  ldy #$FF
+  fillnametable:
+    sta PPUDATA
+    dey
+    cpy #0
+    bne fillnametable
+    ldy #$FF
+    dex
+    cpx #0
+    bne fillnametable
+  rts
+  
+set_map:
+  lda #$20
+  sta PPUADDR
+  lda #$00
+  sta PPUADDR
+  .read_tile:
+  ldy #$00
+  lda ($00),y
+  tax
+  jsr inczero
+  .read_count:
+  lda ($00),y
+  tay
+  cpy #$00
+  beq .end
+  jsr inczero
+  .loop:
+  stx PPUDATA
+  dey
+  bne .loop
+  jmp .read_tile
+  .end:
+  jsr resetscroll
+  rts
+  
+inczero:
+  inc $00
+  bne .cont
+  inc $01
+  .cont:
+  rts
+  
+clrmem:
+  lda #$00
+  ldx #$00
+  .loop:
+  sta $000,x
+  ;sta $100,x
+  sta $200,x
+  sta $300,x
+  sta $400,x
+  sta $500,x
+  sta $600,x
+  sta $700,x
+  inx
+  bne .loop
+  rts
+
+resetscroll:
+  lda #$F8;reset scroll
+  sta ENGSCROLL
+  ldx #$00
+  stx PPUSCROLL
+  sta PPUSCROLL
+  rts
+;////////////////////////////////////////
+;LOOKUP TABLES
+;////////////////////////////////////////
+  
+apu_regs:
+  .byte $30,$08,$00,$00
+  .byte $30,$08,$00,$00
+  .byte $80,$00,$00,$00
+  .byte $30,$00,$00,$00
+  .byte $00,$00,$00,$00
+    
+charstiles:
+  .byte %00111100;A
+  .byte %01000010
+  .byte %01000010
+  .byte %01111110
+  .byte %01000010
+  .byte %01000010
+  .byte %01000010
+  .byte %00000000
+
+  .byte %01111100;B
+  .byte %01000010
+  .byte %01000010
+  .byte %01111100
+  .byte %01000010
+  .byte %01000010
+  .byte %01111100
+  .byte %00000000
+  
+  .byte %00111100;C
+  .byte %01000000
+  .byte %01000000
+  .byte %01000000
+  .byte %01000000
+  .byte %01000000
+  .byte %00111100
+  .byte %00000000
+  
+  .byte %01111100;D
+  .byte %01000010
+  .byte %01000010
+  .byte %01000010
+  .byte %01000010
+  .byte %01000010
+  .byte %01111100
+  .byte %00000000
+  
+  .byte %01111110;E
+  .byte %01000000
+  .byte %01000000
+  .byte %01111100
+  .byte %01000000
+  .byte %01000000
+  .byte %01111110
+  .byte %00000000
+  
+  .byte %01111110;F
+  .byte %01000000
+  .byte %01000000
+  .byte %01111100
+  .byte %01000000
+  .byte %01000000
+  .byte %01000000
+  .byte %00000000
+  
+  .byte %00111110;G
+  .byte %01000000
+  .byte %01000000
+  .byte %01001100
+  .byte %01000010
+  .byte %01000010
+  .byte %00111100
+  .byte %00000000
+  
+  .byte %01000010;H
+  .byte %01000010
+  .byte %01000010
+  .byte %01111110
+  .byte %01000010
+  .byte %01000010
+  .byte %01000010
+  .byte %00000000
+  
+  .byte %01111110;I
+  .byte %00011000
+  .byte %00011000
+  .byte %00011000
+  .byte %00011000
+  .byte %00011000
+  .byte %01111110
+  .byte %00000000
+  
+  .byte %01111110;J
+  .byte %00000100
+  .byte %00000100
+  .byte %00000100
+  .byte %01000100
+  .byte %01000100
+  .byte %00111000
+  .byte %00000000
+  
+  .byte %01000010;K
+  .byte %01000010
+  .byte %01000100
+  .byte %01111000
+  .byte %01000100
+  .byte %01000010
+  .byte %01000010
+  .byte %00000000
+  
+  .byte %01000000;L
+  .byte %01000000
+  .byte %01000000
+  .byte %01000000
+  .byte %01000000
+  .byte %01000000
+  .byte %01111110
+  .byte %00000000
+  
+  .byte %01000010;M
+  .byte %01100110
+  .byte %01011010
+  .byte %01000010
+  .byte %01000010
+  .byte %01000010
+  .byte %01000010
+  .byte %00000000
+  
+  .byte %01111110;N
+  .byte %01000010
+  .byte %01000010
+  .byte %01000010
+  .byte %01000010
+  .byte %01000010
+  .byte %01000010
+  .byte %00000000
+  
+  .byte %00111100;O
+  .byte %01000010
+  .byte %01000010
+  .byte %01000010
+  .byte %01000010
+  .byte %01000010
+  .byte %00111100
+  .byte %00000000
+  
+  .byte %01111100;P
+  .byte %01000010
+  .byte %01000010
+  .byte %01111100
+  .byte %01000000
+  .byte %01000000
+  .byte %01000000
+  .byte %00000000
+  
+  .byte %00111100;Q
+  .byte %01000010
+  .byte %01000010
+  .byte %01000010
+  .byte %01000110
+  .byte %00111100
+  .byte %00000010
+  .byte %00000000
+  
+  .byte %01111100;R
+  .byte %01000010
+  .byte %01000010
+  .byte %01111100
+  .byte %01001000
+  .byte %01000100
+  .byte %01000010
+  .byte %00000000
+  
+  .byte %00111110;S
+  .byte %01000000
+  .byte %01000000
+  .byte %00111100
+  .byte %00000010
+  .byte %00000010
+  .byte %01111100
+  .byte %00000000
+  
+  .byte %01111110;T
+  .byte %00011000
+  .byte %00011000
+  .byte %00011000
+  .byte %00011000
+  .byte %00011000
+  .byte %00011000
+  .byte %00000000
+  
+  .byte %01000010;U
+  .byte %01000010
+  .byte %01000010
+  .byte %01000010
+  .byte %01000010
+  .byte %01000010
+  .byte %00111100
+  .byte %00000000
+  
+  .byte %01000010;V
+  .byte %01000010
+  .byte %01000010
+  .byte %01000010
+  .byte %00100100
+  .byte %00100100
+  .byte %00011000
+  .byte %00000000
+  
+  .byte %01000010;W
+  .byte %01000010
+  .byte %01000010
+  .byte %01000010
+  .byte %01011010
+  .byte %01100110
+  .byte %01000010
+  .byte %00000000
+  
+  .byte %01000010;X
+  .byte %01000010
+  .byte %00100100
+  .byte %00011000
+  .byte %00100100
+  .byte %01000010
+  .byte %01000010
+  .byte %00000000
+  
+  .byte %01000010;Y
+  .byte %01000010
+  .byte %00100100
+  .byte %00011000
+  .byte %00011000
+  .byte %00011000
+  .byte %00011000
+  .byte %00000000
+  
+  .byte %01111110;Z
+  .byte %00000010
+  .byte %00000100
+  .byte %00011000
+  .byte %00100000
+  .byte %01000000
+  .byte %01111110
+  .byte %00000000
+  
+  .byte %00001000;{ (4)
+  .byte %00110000
+  .byte %01000000
+  .byte %01111100
+  .byte %00010000
+  .byte %00010000
+  .byte %00010000
+  .byte %00000000
+  
+  .byte %01111100;| (C)
+  .byte %10000010
+  .byte %10011010
+  .byte %10100010
+  .byte %10011010
+  .byte %10000010
+  .byte %01111100
+  .byte %00000000
+  
+  .byte %01111110;} (2)
+  .byte %00000010
+  .byte %00000010
+  .byte %00111100
+  .byte %01000000
+  .byte %01000000
+  .byte %01111110
+  .byte %00000000
+  
+  .byte %00000000;~ (.)
+  .byte %00000000
+  .byte %00000000
+  .byte %00000000
+  .byte %00000000
+  .byte %00000000
+  .byte %01000000
+  .byte %00000000
+  
+  .byte %01111110;DEL (RES)
+  .byte %01000000
+  .byte %01000000
+  .byte %01111100
+  .byte %01000000
+  .byte %01000000
+  .byte %01111110
+  .byte %00000000
+  
+  .byte %00000000;SPACE (0x20 = 0x60)
+  .byte %00000000
+  .byte %00000000
+  .byte %00000000
+  .byte %00000000
+  .byte %00000000
+  .byte %00000000
+  .byte %00000000
+  
+map_0:
+  .byte $00,$0B,$1F,$15
+  .byte $00,$01,$1F,$09,$00,$01,$1F,$15
+  .byte $00,$01,$1F,$09,$00,$01,$1F,$15
+  .byte $00,$01,$1F,$09,$00,$01,$1F,$15
+  .byte $00,$05,$1F,$01,$00,$05,$1F,$15
+  .byte $00,$00
+  
+  .org $FFFA
+  .word nmi
+  .word reset
+  .word nmi
